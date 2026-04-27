@@ -33,34 +33,18 @@ def should_send():
 
     state = load_state()
 
-    if hour == 2:  # Morning (Thailand 9:30)
+    if hour == 2:
         key = f"{today}_morning"
-
-        if 28 <= minute <= 32:
+        if 28 <= minute <= 32 or 33 <= minute <= 40:
             if not state.get(key):
                 state[key] = True
                 save_state(state)
                 return True
 
-        if 33 <= minute <= 40:
-            if not state.get(key):
-                print("⚠️ Failsafe triggered (morning)")
-                state[key] = True
-                save_state(state)
-                return True
-
-    elif hour == 10:  # Evening (Thailand 5:30)
+    elif hour == 10:
         key = f"{today}_evening"
-
-        if 28 <= minute <= 32:
+        if 28 <= minute <= 32 or 33 <= minute <= 40:
             if not state.get(key):
-                state[key] = True
-                save_state(state)
-                return True
-
-        if 33 <= minute <= 40:
-            if not state.get(key):
-                print("⚠️ Failsafe triggered (evening)")
                 state[key] = True
                 save_state(state)
                 return True
@@ -96,14 +80,28 @@ def get_weather(lat, lon):
         return "N/A"
 
 # =========================
-# MARKET DATA (YAHOO FINANCE)
+# MARKET DATA (YAHOO)
 # =========================
+def format_change(change, pct):
+    try:
+        if pct > 0:
+            return f"🟢 +{pct:.2f}%"
+        elif pct < 0:
+            return f"🔴 {pct:.2f}%"
+        else:
+            return "⚪ 0.00%"
+    except:
+        return ""
+
 def get_gold():
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=GC=F"
-        data = requests.get(url).json()
-        price = data["quoteResponse"]["result"][0]["regularMarketPrice"]
-        return f"${price}/oz"
+        data = requests.get(url).json()["quoteResponse"]["result"][0]
+
+        price = data["regularMarketPrice"]
+        pct = data.get("regularMarketChangePercent", 0)
+
+        return f"${price}/oz ({format_change(0, pct)})"
     except Exception as e:
         print("Gold error:", e)
         return "N/A"
@@ -111,9 +109,12 @@ def get_gold():
 def get_oil():
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=BZ=F"
-        data = requests.get(url).json()
-        price = data["quoteResponse"]["result"][0]["regularMarketPrice"]
-        return f"${price}/bbl"
+        data = requests.get(url).json()["quoteResponse"]["result"][0]
+
+        price = data["regularMarketPrice"]
+        pct = data.get("regularMarketChangePercent", 0)
+
+        return f"${price}/bbl ({format_change(0, pct)})"
     except Exception as e:
         print("Oil error:", e)
         return "N/A"
@@ -129,7 +130,7 @@ def get_fed():
     return "Markets pricing ~1-2 cuts → easing liquidity, supportive for risk assets & VC funding"
 
 # =========================
-# HEADLINES (NIKKEI)
+# HEADLINES
 # =========================
 def get_nikkei_trending():
     feed = feedparser.parse("https://asia.nikkei.com/rss/feed/nar")
