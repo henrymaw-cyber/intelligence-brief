@@ -15,9 +15,17 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 WEATHER_API = "https://api.open-meteo.com/v1/forecast"
 FX_API = "https://api.exchangerate-api.com/v4/latest/USD"
 GOLD_API = "https://api.metals.live/v1/spot/gold"
-
-# Nikkei RSS (used as "trending proxy")
 NIKKEI_RSS = "https://asia.nikkei.com/rss/feed/nar"
+
+# =========================
+# DEDUP LOGIC
+# =========================
+def should_send():
+    now = datetime.utcnow()
+    minute = now.minute
+
+    # Only allow sending close to minute 30
+    return 28 <= minute <= 32
 
 # =========================
 # WEATHER ICONS
@@ -76,17 +84,15 @@ def get_fed():
     return "Markets pricing ~1-2 cuts → easing liquidity, supportive for risk assets & VC funding"
 
 # =========================
-# NIKKEI HEADLINES (RSS-BASED)
+# NIKKEI HEADLINES
 # =========================
 def get_nikkei_trending():
     feed = feedparser.parse(NIKKEI_RSS)
 
     headlines = []
-
     for entry in feed.entries:
         title = entry.title.strip()
 
-        # filter out weak / short titles
         if len(title) < 40:
             continue
 
@@ -101,7 +107,7 @@ def get_nikkei_trending():
     return headlines
 
 # =========================
-# EVENTS (NEXT 30 DAYS ONLY)
+# EVENTS (NEXT 30 DAYS)
 # =========================
 def get_events():
     today = datetime.now()
@@ -144,7 +150,7 @@ def get_events():
 # TELEGRAM
 # =========================
 def send(msg):
-    requests.post(
+    r = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
         json={
             "chat_id": TELEGRAM_CHAT_ID,
@@ -152,11 +158,16 @@ def send(msg):
             "parse_mode": "Markdown"
         }
     )
+    print(r.text)
 
 # =========================
 # MAIN
 # =========================
 def main():
+    if not should_send():
+        print("Skipped send (outside target minute window)")
+        return
+
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     gold = get_gold()
@@ -170,9 +181,6 @@ def main():
     nikkei = get_nikkei_trending()
     events = get_events()
 
-    # =========================
-    # FORMAT
-    # =========================
     msg = f"*__Daily SEA Intelligence Stack — {today_str}__*\n\n"
 
     msg += "*__MARKETS__*\n"
