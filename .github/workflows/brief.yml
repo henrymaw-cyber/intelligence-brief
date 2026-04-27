@@ -2,8 +2,16 @@ name: Daily Intelligence Brief
 
 on:
   schedule:
+    # Morning window (Thailand 9:30 AM)
+    - cron: '25 2 * * *'
     - cron: '30 2 * * *'
+    - cron: '35 2 * * *'
+
+    # Evening window (Thailand 5:30 PM)
+    - cron: '25 10 * * *'
     - cron: '30 10 * * *'
+    - cron: '35 10 * * *'
+
   workflow_dispatch:
 
 jobs:
