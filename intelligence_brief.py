@@ -1,6 +1,6 @@
 import feedparser
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import json
 
@@ -26,24 +26,24 @@ def save_state(state):
         json.dump(state, f)
 
 def should_send():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     minute = now.minute
     hour = now.hour
     today = now.strftime("%Y-%m-%d")
 
     state = load_state()
 
-    if hour == 2:
+    if hour == 2:  # 9:30am Thailand
         key = f"{today}_morning"
-        if 28 <= minute <= 32 or 33 <= minute <= 40:
+        if 28 <= minute <= 40:
             if not state.get(key):
                 state[key] = True
                 save_state(state)
                 return True
 
-    elif hour == 10:
+    elif hour == 10:  # 5:30pm Thailand
         key = f"{today}_evening"
-        if 28 <= minute <= 32 or 33 <= minute <= 40:
+        if 28 <= minute <= 40:
             if not state.get(key):
                 state[key] = True
                 save_state(state)
@@ -80,44 +80,57 @@ def get_weather(lat, lon):
         return "N/A"
 
 # =========================
-# MARKET DATA (YAHOO)
+# MARKET DATA (WITH FALLBACK)
 # =========================
-def format_change(change, pct):
-    try:
-        if pct > 0:
-            return f"🟢 +{pct:.2f}%"
-        elif pct < 0:
-            return f"🔴 {pct:.2f}%"
-        else:
-            return "⚪ 0.00%"
-    except:
-        return ""
-
 def get_gold():
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=GC=F"
-        data = requests.get(url).json()["quoteResponse"]["result"][0]
+        data = requests.get(url, timeout=5).json()["quoteResponse"]["result"]
 
-        price = data["regularMarketPrice"]
-        pct = data.get("regularMarketChangePercent", 0)
+        if data:
+            d = data[0]
+            price = d["regularMarketPrice"]
+            pct = d.get("regularMarketChangePercent", 0)
 
-        return f"${price}/oz ({format_change(0, pct)})"
+            symbol = "🟢" if pct > 0 else "🔴" if pct < 0 else "⚪"
+            return f"${price}/oz ({symbol} {pct:.2f}%)"
     except Exception as e:
-        print("Gold error:", e)
-        return "N/A"
+        print("Yahoo gold failed:", e)
+
+    try:
+        url = "https://stooq.com/q/l/?s=gc.f&f=sd2t2ohlcv&h&e=csv"
+        text = requests.get(url, timeout=5).text.split("\n")[1]
+        price = text.split(",")[6]
+        return f"${price}/oz"
+    except Exception as e:
+        print("Stooq gold failed:", e)
+
+    return "N/A"
 
 def get_oil():
     try:
         url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=BZ=F"
-        data = requests.get(url).json()["quoteResponse"]["result"][0]
+        data = requests.get(url, timeout=5).json()["quoteResponse"]["result"]
 
-        price = data["regularMarketPrice"]
-        pct = data.get("regularMarketChangePercent", 0)
+        if data:
+            d = data[0]
+            price = d["regularMarketPrice"]
+            pct = d.get("regularMarketChangePercent", 0)
 
-        return f"${price}/bbl ({format_change(0, pct)})"
+            symbol = "🟢" if pct > 0 else "🔴" if pct < 0 else "⚪"
+            return f"${price}/bbl ({symbol} {pct:.2f}%)"
     except Exception as e:
-        print("Oil error:", e)
-        return "N/A"
+        print("Yahoo oil failed:", e)
+
+    try:
+        url = "https://stooq.com/q/l/?s=brent&f=sd2t2ohlcv&h&e=csv"
+        text = requests.get(url, timeout=5).text.split("\n")[1]
+        price = text.split(",")[6]
+        return f"${price}/bbl"
+    except Exception as e:
+        print("Stooq oil failed:", e)
+
+    return "N/A"
 
 def get_fx():
     try:
@@ -134,8 +147,8 @@ def get_fed():
 # =========================
 def get_nikkei_trending():
     feed = feedparser.parse("https://asia.nikkei.com/rss/feed/nar")
-
     headlines = []
+
     for entry in feed.entries:
         title = entry.title.strip()
         if len(title) < 40:
@@ -168,15 +181,10 @@ def get_events():
 # TELEGRAM
 # =========================
 def send(msg):
-    r = requests.post(
+    requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": msg,
-            "parse_mode": "Markdown"
-        }
+        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}
     )
-    print(r.text)
 
 # =========================
 # MAIN
@@ -202,15 +210,10 @@ def main():
     msg = f"*__Daily SEA Intelligence Stack — {today}__*\n\n"
 
     msg += "*__MARKETS__*\n"
-    msg += f"Gold: {gold}\n"
-    msg += f"Brent: {oil}\n"
-    msg += f"USD/THB: {thb}\n"
-    msg += f"USD/SGD: {sgd}\n"
-    msg += f"Fed: {fed}\n\n"
+    msg += f"Gold: {gold}\nBrent: {oil}\nUSD/THB: {thb}\nUSD/SGD: {sgd}\nFed: {fed}\n\n"
 
     msg += "*__WEATHER__*\n"
-    msg += f"Bangkok: {bangkok}\n"
-    msg += f"Yangon: {yangon}\n\n"
+    msg += f"Bangkok: {bangkok}\nYangon: {yangon}\n\n"
 
     msg += "*__EVENTS__*\n"
     for e in events:
