@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATE_FILE = "send_state.json"
 
 # =========================
-# LOAD / SAVE STATE
+# STATE (DEDUP + FAILSAFE)
 # =========================
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -25,9 +25,6 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-# =========================
-# SEND LOGIC (DEDUP + FAILSAFE)
-# =========================
 def should_send():
     now = datetime.utcnow()
     minute = now.minute
@@ -36,18 +33,15 @@ def should_send():
 
     state = load_state()
 
-    # Identify window
     if hour == 2:  # Morning (Thailand 9:30)
         key = f"{today}_morning"
 
-        # Normal send window
         if 28 <= minute <= 32:
             if not state.get(key):
                 state[key] = True
                 save_state(state)
                 return True
 
-        # Failsafe window
         if 33 <= minute <= 40:
             if not state.get(key):
                 print("⚠️ Failsafe triggered (morning)")
@@ -74,15 +68,7 @@ def should_send():
     return False
 
 # =========================
-# APIs
-# =========================
-WEATHER_API = "https://api.open-meteo.com/v1/forecast"
-FX_API = "https://api.exchangerate-api.com/v4/latest/USD"
-GOLD_API = "https://api.metals.live/v1/spot/gold"
-NIKKEI_RSS = "https://asia.nikkei.com/rss/feed/nar"
-
-# =========================
-# WEATHER ICONS
+# WEATHER
 # =========================
 def weather_icon(code):
     if code == 0:
@@ -98,46 +84,57 @@ def weather_icon(code):
     else:
         return "🌤️"
 
-# =========================
-# DATA
-# =========================
-def get_gold():
-    try:
-        return f"${requests.get(GOLD_API).json()[0]['price']}/oz"
-    except:
-        return "N/A"
-
-def get_fx():
-    try:
-        d = requests.get(FX_API).json()
-        return f"{d['rates']['THB']:.2f}", f"{d['rates']['SGD']:.2f}"
-    except:
-        return "N/A", "N/A"
-
 def get_weather(lat, lon):
     try:
-        r = requests.get(WEATHER_API, params={
-            "latitude": lat,
-            "longitude": lon,
-            "current_weather": True
-        }).json()
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "current_weather": True}
+        ).json()
+
         return f"{weather_icon(r['current_weather']['weathercode'])} {r['current_weather']['temperature']}°C"
     except:
         return "N/A"
 
+# =========================
+# MARKET DATA (YAHOO FINANCE)
+# =========================
+def get_gold():
+    try:
+        url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=GC=F"
+        data = requests.get(url).json()
+        price = data["quoteResponse"]["result"][0]["regularMarketPrice"]
+        return f"${price}/oz"
+    except Exception as e:
+        print("Gold error:", e)
+        return "N/A"
+
 def get_oil():
     try:
-        return f"${requests.get('https://api.metals.live/v1/spot/brent').json()[0]['price']}/bbl"
-    except:
+        url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=BZ=F"
+        data = requests.get(url).json()
+        price = data["quoteResponse"]["result"][0]["regularMarketPrice"]
+        return f"${price}/bbl"
+    except Exception as e:
+        print("Oil error:", e)
         return "N/A"
+
+def get_fx():
+    try:
+        d = requests.get("https://api.exchangerate-api.com/v4/latest/USD").json()
+        return f"{d['rates']['THB']:.2f}", f"{d['rates']['SGD']:.2f}"
+    except:
+        return "N/A", "N/A"
 
 def get_fed():
     return "Markets pricing ~1-2 cuts → easing liquidity, supportive for risk assets & VC funding"
 
+# =========================
+# HEADLINES (NIKKEI)
+# =========================
 def get_nikkei_trending():
-    feed = feedparser.parse(NIKKEI_RSS)
-    headlines = []
+    feed = feedparser.parse("https://asia.nikkei.com/rss/feed/nar")
 
+    headlines = []
     for entry in feed.entries:
         title = entry.title.strip()
         if len(title) < 40:
@@ -148,6 +145,9 @@ def get_nikkei_trending():
 
     return headlines or ["No Nikkei headlines available"]
 
+# =========================
+# EVENTS
+# =========================
 def get_events():
     today = datetime.now()
     cutoff = today + timedelta(days=30)
@@ -188,8 +188,8 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
 
     gold = get_gold()
-    thb, sgd = get_fx()
     oil = get_oil()
+    thb, sgd = get_fx()
     fed = get_fed()
 
     bangkok = get_weather(13.7563, 100.5018)
@@ -201,10 +201,15 @@ def main():
     msg = f"*__Daily SEA Intelligence Stack — {today}__*\n\n"
 
     msg += "*__MARKETS__*\n"
-    msg += f"Gold: {gold}\nBrent: {oil}\nUSD/THB: {thb}\nUSD/SGD: {sgd}\nFed: {fed}\n\n"
+    msg += f"Gold: {gold}\n"
+    msg += f"Brent: {oil}\n"
+    msg += f"USD/THB: {thb}\n"
+    msg += f"USD/SGD: {sgd}\n"
+    msg += f"Fed: {fed}\n\n"
 
     msg += "*__WEATHER__*\n"
-    msg += f"Bangkok: {bangkok}\nYangon: {yangon}\n\n"
+    msg += f"Bangkok: {bangkok}\n"
+    msg += f"Yangon: {yangon}\n\n"
 
     msg += "*__EVENTS__*\n"
     for e in events:
@@ -213,6 +218,8 @@ def main():
     msg += "\n*__HEADLINES__*\n"
     for h in nikkei:
         msg += f"- {h}\n"
+
+    msg += "\n— End —"
 
     send(msg)
 
