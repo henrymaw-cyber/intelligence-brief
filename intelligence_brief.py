@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STATE_FILE = "send_state.json"
 
 # =========================
-# STATE (DEDUP + FAILSAFE)
+# STATE (DEDUP ONLY)
 # =========================
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -27,27 +27,26 @@ def save_state(state):
 
 def should_send():
     now = datetime.now(timezone.utc)
-    minute = now.minute
     hour = now.hour
     today = now.strftime("%Y-%m-%d")
 
     state = load_state()
 
-    if hour == 2:  # 9:30am Thailand
+    # Morning run (9:30am Thailand = 02 UTC)
+    if hour == 2:
         key = f"{today}_morning"
-        if 28 <= minute <= 40:
-            if not state.get(key):
-                state[key] = True
-                save_state(state)
-                return True
+        if not state.get(key):
+            state[key] = True
+            save_state(state)
+            return True
 
-    elif hour == 10:  # 5:30pm Thailand
+    # Evening run (5:30pm Thailand = 10 UTC)
+    elif hour == 10:
         key = f"{today}_evening"
-        if 28 <= minute <= 40:
-            if not state.get(key):
-                state[key] = True
-                save_state(state)
-                return True
+        if not state.get(key):
+            state[key] = True
+            save_state(state)
+            return True
 
     return False
 
@@ -181,10 +180,15 @@ def get_events():
 # TELEGRAM
 # =========================
 def send(msg):
-    requests.post(
+    response = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}
+        json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "parse_mode": "Markdown"
+        }
     )
+    print(response.text)
 
 # =========================
 # MAIN
